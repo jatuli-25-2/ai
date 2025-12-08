@@ -1,0 +1,50 @@
+# --- 기본 빌드/캐시 폴더 ---
+build/
+out/
+bin/
+
+# --- Gradle Wrapper는 반드시 포함 ---
+!gradlew
+!gradlew.bat
+!gradle/wrapper/
+!gradle/wrapper/gradle-wrapper.jar
+!gradle/wrapper/gradle-wrapper.properties
+
+# --- IDE 설정 파일 무시 (IntelliJ, STS, VSCode 등) ---
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+*.class
+
+# --- STS 관련 ---
+.apt_generated/
+.factorypath
+.project
+.classpath
+.settings/
+.springBeans/
+.sts4-cache/
+
+# --- 로그 파일 ---
+*.log
+
+# --- 실행 환경 파일 (DB, API키 등) ---
+.env
+#application-*.yml
+#application-*.properties
+#.env 파일에서 전부 관리해서 이그노어x
+
+# --- 테스트 관련 빌드 폴더 제외 ---
+!**/src/main/**/out/
+!**/src/test/**/out/
+!**/src/main/**/bin/
+!**/src/test/**/bin/
+
+# --- resources 폴더는 Git에 포함시키기 ---
+!src/
+!src/main/
+!src/test/
+!src/main/resources/**
+!src/test/resources/**
