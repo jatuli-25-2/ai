@@ -1,13 +1,17 @@
 # ai/src/ai_server.py
 # ⛔ stateful 없음
 # ⭕ Spring에서 보낸 messages 전체 기반으로 항상 동작하는 순수 생성기
+import os
 
 from fastapi import FastAPI
 from pydantic import BaseModel
 from typing import List
 from openai import OpenAI
 
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+if not OPENAI_API_KEY:
+    raise RuntimeError("OPENAI_API_KEY 환경 변수가 설정되지 않았습니다.")
+client = OpenAI(api_key=OPENAI_API_KEY)
 
 MODEL_FAST = "gpt-4o-mini"
 MODEL_DEEP = "gpt-4o"
