@@ -123,8 +123,13 @@ def finalize(req: FinalizeRequest):
     music_prompt = "기분을 차분하게 하는 한국 노래 한 곡과 링크를 추천해줘."
     music = openai_chat(MODEL_FAST, "너는 음악 큐레이터", music_prompt)
 
+    # ⭐ 장르 추천 추가
+    genre_prompt = "방금 추천한 노래의 장르를 한 단어로만 알려줘. (예: Ballad, Rock, Indie, Hip-hop)"
+    genre = openai_chat(MODEL_FAST, "너는 음악 장르 분류 전문가다.", genre_prompt)
+
     return FinalizeResponse(
         finalText=final_text,
         dominantEmotion="neutral",
-        music={"recommendation": music}
+        music={"recommendation": music,
+               "genre": genre}
     )
