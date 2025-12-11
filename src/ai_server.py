@@ -2,10 +2,14 @@
 # ⛔ stateful 없음
 # ⭕ Spring에서 보낸 messages 전체 기반으로 항상 동작하는 순수 생성기
 import os
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+import pandas as pd
 
 from fastapi import FastAPI
+from transformers import BertModel, AutoTokenizer
 from pydantic import BaseModel
-from typing import List
 from openai import OpenAI
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
@@ -15,6 +19,52 @@ client = OpenAI(api_key=OPENAI_API_KEY)
 
 MODEL_FAST = "gpt-4o-mini"
 MODEL_DEEP = "gpt-4o"
+
+DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+EMOTION_LABELS = ["happiness", "sadness", "angry", "disgust", "fear", "surprise", "neutral"]
+
+LOG_DIR = "logs"
+os.makedirs(LOG_DIR, exist_ok=True)
+GOOD_Q_PATH = os.path.join(LOG_DIR, "good_questions.csv")
+
+TARGET_INITIAL_QA = 5
+
+# ============================
+# 감정분석 모델 정의
+# ============================
+class EmotionClassifier7(nn.Module):
+    def __init__(self, model_path: str = "emotion_model.pt"):
+        super().__init__()
+        self.bert = BertModel.from_pretrained("monologg/kobert", trust_remote_code=True)
+        self.fc = nn.Linear(self.bert.config.hidden_size, len(EMOTION_LABELS))
+        state_dict = torch.load(model_path, map_location=DEVICE)
+        self.load_state_dict(state_dict, strict=False)
+        self.to(DEVICE)
+        self.eval()
+        self.tokenizer = AutoTokenizer.from_pretrained("monologg/kobert", trust_remote_code=True)
+
+    @torch.no_grad()
+    def predict(self, text: str) -> Dict:
+        encoded = self.tokenizer(
+            text,
+            return_tensors="pt",
+            padding=True,
+            truncation=True,
+            max_length=64,
+        ).to(DEVICE)
+
+        outputs = self.bert(**encoded)
+        cls = outputs.last_hidden_state[:, 0]
+        logits = self.fc(cls)
+        probs = F.softmax(logits, dim=-1).cpu().numpy()[0]
+        idx = int(probs.argmax())
+        return {
+            "emotion": EMOTION_LABELS[idx],
+            "probs": probs.tolist(),
+        }
+    
+emotion_model = EmotionClassifier7(model_path="emotion_model.pt")
 
 # ====================================
 #  Pydantic Models
