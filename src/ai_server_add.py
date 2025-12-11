@@ -95,7 +95,7 @@ class FinalizeRequest(BaseModel):
 class FinalizeResponse(BaseModel):
     finalText: str
     dominantEmotion: str   # 전체 USER 발화 중 지배적 감정
-    recommend: dict            # diary: 음악 추천, book_review: 도서 추천
+    recommend: dict            # diary: 음악 추천, review: 도서 추천 (music에서 recommend로 변경)
 
 
 app = FastAPI()
@@ -172,10 +172,6 @@ def get_first_question(mode: str):
 # ====================================
 @app.post("/api/ai/next-question", response_model=NextQuestionResponse)
 def next_question(req: NextQuestionRequest):
-
-    # mode 검증 (diary / book_review / review)
-    if req.mode not in ("diary", "book_review", "review"):
-        raise HTTPException(status_code=400, detail="mode는 'diary' 또는 'book_review'/'review'만 가능합니다.")
 
     history = "\n".join([f"{m.role}: {m.content}" for m in req.messages])
 
