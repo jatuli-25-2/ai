@@ -95,7 +95,7 @@ class FinalizeRequest(BaseModel):
 class FinalizeResponse(BaseModel):
     finalText: str
     dominantEmotion: str   # 전체 USER 발화 중 지배적 감정
-    recommend: dict            # diary: 음악 추천, review: 도서 추천 (music에서 recommend로 변경)
+    recommend: dict            # diary: 음악 추천, review: 도서 추천 (변경)
 
 
 app = FastAPI()
@@ -120,40 +120,45 @@ def openai_chat(model, system, user, max_tokens=400):
 # ====================================
 # 추천 유틸 (음악 / 도서)
 # ====================================
+def extract_genre(text: str) -> str:
+    genre_prompt = (
+        "다음 추천 문장에서 추천된 항목의 장르를 한 단어로만 알려줘. "
+        "예: Ballad, Indie, Rock, Jazz, Fiction, Essay 등. "
+        "장르가 명확하지 않으면 가장 유사한 장르를 추정해서 한 단어로만 답해."
+    )
+    genre = openai_chat(MODEL_FAST, "너는 음악·도서 장르 분류 전문가다.", f"{genre_prompt}\n\n{text}")
+    return genre.strip()
+
 def recommend_music(emotion: str) -> Dict[str, str]:
-    """
-    일기 모드: 주된 감정에 어울리는 한국 노래 추천
-    """
     prompt = (
         f"'{emotion}' 감정에 어울리는 한국 노래 1곡을 추천해줘. "
-        f"제목과 가수 이름을 말해주고, 왜 이 감정에 어울리는지 한두 문장 설명해줘. "
-        f"유튜브 링크나 음원 링크를 하나 자연스럽게 문장 안에 포함해서 한국어 한 단락으로 작성해줘."
+        f"제목과 가수를 말해주고, 왜 이 감정에 어울리는지 설명해줘. "
+        f"유튜브 링크를 자연스럽게 포함해서 한국어 한 단락으로 작성해줘."
     )
     rec = openai_chat(MODEL_FAST, "너는 한국 음악 큐레이터야.", prompt)
+    genre = extract_genre(rec)
+
     return {
-        "type": "music",
+        "type": genre,
         "emotion": emotion,
-        "recommendation": rec,
+        "recommend": rec,
     }
 
 
 def recommend_book(emotion: str) -> Dict[str, str]:
-    """
-    독후감 모드: 주된 감정에 어울리는 한국 도서 추천
-    """
     prompt = (
         f"'{emotion}' 감정에 어울리는 한국 도서 1권을 추천해줘. "
-        f"제목, 저자, 한 줄 줄거리, 왜 이 감정에 어울리는지 설명해주고, "
-        f"온라인 서점(예: 교보문고, 알라딘 등) 링크를 하나 자연스럽게 문장 안에 포함해서 "
-        f"한국어 한 단락으로 작성해줘."
+        f"제목, 저자, 한 줄 줄거리, 감정과의 관련성을 설명하고 "
+        f"온라인 서점 링크를 자연스럽게 포함한 한 단락으로 작성해줘."
     )
     rec = openai_chat(MODEL_FAST, "너는 한국 도서 큐레이터야.", prompt)
-    return {
-        "type": "book",
-        "emotion": emotion,
-        "recommendation": rec,
-    }
+    genre = extract_genre(rec)
 
+    return {
+        "type": genre,
+        "emotion": emotion,
+        "recommend": rec,
+    }
 
 # ====================================
 # 1) 첫 질문
