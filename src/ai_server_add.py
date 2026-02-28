@@ -1,10 +1,12 @@
 # ai/src/ai_server.py
 # ⛔ stateful 없음
 # ⭕ Spring에서 보낸 messages 전체 기반으로 항상 동작하는 순수 생성기
+
 import os
 import json
 import re
-from typing import List, Dict, Optional
+from urllib.parse import quote_plus
+from typing import List, Dict, Optional, Any
 from collections import Counter
 
 from fastapi import FastAPI
@@ -29,6 +31,10 @@ MODEL_DEEP = "gpt-5.2"
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 EMOTIONS_KO = ["분노", "혐오", "두려움", "기쁨", "중립", "슬픔", "놀람"]
+
+# 추천 장르
+MUSIC_GENRES = ["발라드", "댄스", "힙합", "R&B", "인디", "록", "OST", "트로트", "기타"]
+BOOK_GENRES = ["소설", "에세이", "자기계발", "인문", "심리", "시", "기타"]
 
 # ============================
 # 감정분석 모델 (KoBERT)
@@ -99,7 +105,7 @@ class TitleResponse(BaseModel):
     titles: Optional[List[str]] = None     # 제안 후보 3개
     finalTitle: Optional[str] = None       # 확정 제목 1개
     allowCustom: bool = True
-    stage: str  # "suggest" or "confirm"              
+    stage: str  # "suggest" or "confirm"
 
 app = FastAPI()
 
@@ -122,43 +128,167 @@ def _clip_for_prompt(text: str, max_chars: int = 1600) -> str:
     text = (text or "").strip()
     if len(text) <= max_chars:
         return text
-    # 앞 1200 + 뒤 400 정도로 핵심 유지
     return text[:1200] + "\n...\n" + text[-400:]
+
+# ============================
+# JSON 안전 파싱 유틸 (추천/제목에서 사용)
+# ============================
+def _extract_json_loose(text: str) -> Dict[str, Any]:
+    """
+    모델이 JSON만 주기로 했는데 앞뒤 텍스트를 붙이는 경우가 있어
+    { ... } 블록만 최대한 뽑아 파싱한다.
+    """
+    m = re.search(r"\{.*\}", text, flags=re.S)
+    if not m:
+        return {}
+    try:
+        return json.loads(m.group(0))
+    except json.JSONDecodeError:
+        return {}
+
+def openai_json(model: str, system: str, user: str, max_tokens: int = 250) -> Dict[str, Any]:
+    """
+    JSON 전용 호출.
+    response_format 지원되면 안정적으로 JSON만 받음.
+    미지원/실패 시 loose 파싱 fallback.
+    """
+    try:
+        res = client.chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
+            ],
+            max_completion_tokens=max_tokens,
+            temperature=0.2,
+            response_format={"type": "json_object"},
+        )
+        return json.loads(res.choices[0].message.content.strip())
+    except Exception:
+        raw = openai_chat(model, system, user, max_tokens=max_tokens)
+        return _extract_json_loose(raw)
+
+# ============================
+# 링크 생성 유틸
+# ============================
+def youtube_search_url(title: str, artist: str) -> str:
+    q = quote_plus(f"{title} {artist}".strip())
+    return f"https://www.youtube.com/results?search_query={q}"
+
+def kyobo_search_url(title: str, author: str) -> str:
+    q = quote_plus(f"{title} {author}".strip())
+    return f"https://search.kyobobook.co.kr/search?keyword={q}"
+
+def aladin_search_url(title: str, author: str) -> str:
+    q = quote_plus(f"{title} {author}".strip())
+    return f"https://www.aladin.co.kr/search/wsearchresult.aspx?SearchTarget=All&SearchWord={q}"
 
 # ============================
 # 추천 유틸 (음악 / 도서)
 # ============================
-def extract_genre(text: str) -> str:
-    genre_prompt = (
-        "다음 추천 문장에서 추천된 항목의 장르를 한 단어로만 알려줘. "
-        "예: Ballad, Indie, Rock, Jazz, Fiction, Essay 등. "
-        "장르가 명확하지 않으면 가장 유사한 장르를 추정해서 한 단어로만 답해."
-    )
-    genre = openai_chat(MODEL_FAST, "너는 음악·도서 장르 분류 전문가다.", f"{genre_prompt}\n\n{text}")
-    return genre.strip()
-
 def recommend_music(emotion: str) -> Dict[str, str]:
-    prompt = (
-        f"'{emotion}' 감정에 어울리는 한국 노래 1곡을 추천해줘. "
-        f"제목과 가수를 말해주고, 왜 이 감정에 어울리는지 설명해줘. "
-        f"유튜브 링크를 자연스럽게 포함해서 한국어 한 단락으로 작성해줘."
+    """
+    - LLM이 URL을 만들지 않음(링크 환각 방지)
+    - title/artist/genre/reason을 JSON으로만 받음
+    - 링크는 서버가 '검색 링크'로 생성
+    """
+    prompt = f"""
+아래 형식의 JSON만 출력하세요. 다른 텍스트/링크/마크다운 금지.
+
+필드:
+- title: 한국 노래 제목(실존/대중적으로 알려진 곡)
+- artist: 가수명
+- genre: {MUSIC_GENRES} 중 1개
+- reason: '{emotion}' 감정에 어울리는 이유 (한국어 2~3문장)
+
+규칙:
+- URL/링크는 절대 포함하지 마세요.
+- 존재가 불확실한 곡은 피하고, 최대한 유명한 곡을 선택하세요.
+
+출력 예:
+{{"title":"...","artist":"...","genre":"...","reason":"..."}}
+""".strip()
+
+    data = openai_json(MODEL_FAST, "너는 한국 음악 큐레이터야.", prompt, max_tokens=220)
+
+    title = str(data.get("title", "")).strip()
+    artist = str(data.get("artist", "")).strip()
+    genre = str(data.get("genre", "기타")).strip()
+    reason = str(data.get("reason", "")).strip()
+
+    if genre not in MUSIC_GENRES:
+        genre = "기타"
+
+    # 안전장치
+    if not title or not artist:
+        title, artist, reason, genre = "추천 곡을 불러오지 못했습니다", "", "잠시 후 다시 시도해주세요.", "기타"
+
+    link = youtube_search_url(title, artist) if title and artist else ""
+
+    rec_text = (
+        f"🎵 추천: {title} - {artist}\n"
+        f"장르: {genre}\n"
+        f"이유: {reason}\n"
+        f"유튜브에서 찾아보기: {link}"
     )
-    rec = openai_chat(MODEL_FAST, "너는 한국 음악 큐레이터야.", prompt)
-    genre = extract_genre(rec)
-    return {"type": genre, "emotion": emotion, "recommend": rec}
+
+    return {"type": genre, "emotion": emotion, "recommend": rec_text}
 
 def recommend_book(emotion: str) -> Dict[str, str]:
-    prompt = (
-        f"'{emotion}' 감정에 어울리는 한국 도서 1권을 추천해줘. "
-        f"제목, 저자, 한 줄 줄거리, 감정과의 관련성을 설명하고 "
-        f"온라인 서점 링크를 자연스럽게 포함한 한 단락으로 작성해줘."
+    """
+    - LLM이 서점 URL을 만들지 않음(링크 환각 방지)
+    - title/author/genre/one_line/reason을 JSON으로만 받음
+    - 링크는 서버가 '검색 링크'로 생성
+    """
+    prompt = f"""
+아래 형식의 JSON만 출력하세요. 다른 텍스트/링크/마크다운 금지.
+
+필드:
+- title: 한국 도서 제목(실존 도서)
+- author: 저자
+- genre: {BOOK_GENRES} 중 1개
+- one_line: 한 줄 줄거리(한국어 1문장)
+- reason: '{emotion}' 감정에 어울리는 이유 (한국어 2~3문장)
+
+규칙:
+- URL/링크는 절대 포함하지 마세요.
+- 존재가 불확실한 도서는 피하고, 최대한 검증된 도서를 선택하세요.
+
+출력 예:
+{{"title":"...","author":"...","genre":"...","one_line":"...","reason":"..."}}
+""".strip()
+
+    data = openai_json(MODEL_FAST, "너는 한국 도서 큐레이터야.", prompt, max_tokens=260)
+
+    title = str(data.get("title", "")).strip()
+    author = str(data.get("author", "")).strip()
+    genre = str(data.get("genre", "기타")).strip()
+    one_line = str(data.get("one_line", "")).strip()
+    reason = str(data.get("reason", "")).strip()
+
+    if genre not in BOOK_GENRES:
+        genre = "기타"
+
+    # 안전장치
+    if not title or not author:
+        title, author, one_line, reason, genre = "추천 도서를 불러오지 못했습니다", "", "", "잠시 후 다시 시도해주세요.", "기타"
+
+    kyobo = kyobo_search_url(title, author) if title and author else ""
+    aladin = aladin_search_url(title, author) if title and author else ""
+
+    rec_text = (
+        f"📚 추천: {title} - {author}\n"
+        f"장르: {genre}\n"
+        f"한 줄: {one_line}\n"
+        f"이유: {reason}\n"
+        f"교보문고에서 찾아보기: {kyobo}\n"
+        f"알라딘에서 찾아보기: {aladin}"
     )
-    rec = openai_chat(MODEL_FAST, "너는 한국 도서 큐레이터야.", prompt)
-    genre = extract_genre(rec)
-    return {"type": genre, "emotion": emotion, "recommend": rec}
+
+    return {"type": genre, "emotion": emotion, "recommend": rec_text}
 
 # ============================
-# ✅ 제목 추천 
+# 제목 추천
 # ============================
 def suggest_titles(mode: str, final_text: str, dominant_emotion: Optional[str] = None) -> List[str]:
     clipped = _clip_for_prompt(final_text)
@@ -192,30 +322,25 @@ def suggest_titles(mode: str, final_text: str, dominant_emotion: Optional[str] =
 
     raw = openai_chat(MODEL_FAST, system, user, max_tokens=200)
 
-    # 1) JSON 파싱 시도
     titles: List[str] = []
     try:
         data = json.loads(raw)
         titles = data.get("titles", []) if isinstance(data, dict) else []
     except Exception:
-        # 2) JSON 깨질 때를 대비한 fallback: 줄 단위/따옴표 제거
         lines = [ln.strip() for ln in raw.splitlines() if ln.strip()]
-        # "titles: ..." 같은 형태 제거
         cleaned = []
         for ln in lines:
             ln = re.sub(r'^[\-\*\d\.\)\(]+\s*', '', ln).strip()
             ln = ln.strip('"\'')
-
             if ln:
                 cleaned.append(ln)
         titles = cleaned
 
     titles = [t.strip() for t in titles if isinstance(t, str) and t.strip()]
     titles = [t[:30] for t in titles]
-    titles = list(dict.fromkeys(titles))  # 중복 제거 (순서 유지)
+    titles = list(dict.fromkeys(titles))
     titles = titles[:3]
 
-    # 부족하면 안전한 기본값 보충
     while len(titles) < 3:
         if mode == "diary":
             titles.append(f"오늘의 기록 {len(titles)+1}")
@@ -308,11 +433,11 @@ def finalize(req: FinalizeRequest):
     )
 
 # ============================
-# ✅ 4) 제목 추천
+# 4) 제목 추천/확정 (단일 엔드포인트)
 # ============================
 @app.post("/api/ai/title", response_model=TitleResponse)
 def title(req: TitleRequest):
-    # 확정 단계 (선택/직접입력)
+    # 확정 단계: 직접 입력 우선
     if req.customTitle and req.customTitle.strip():
         return TitleResponse(
             finalTitle=req.customTitle.strip()[:50],
@@ -320,12 +445,9 @@ def title(req: TitleRequest):
             stage="confirm"
         )
 
+    # 확정 단계: 인덱스 선택
     if req.selectedIndex is not None:
-        # titles가 같이 오면 그대로 쓰고, 없으면 서버가 재생성
-        titles = req.titles
-        if not titles:
-            titles = suggest_titles(req.mode, req.finalText, req.dominantEmotion)
-
+        titles = req.titles or suggest_titles(req.mode, req.finalText, req.dominantEmotion)
         if 0 <= req.selectedIndex < len(titles):
             chosen = (titles[req.selectedIndex] or "").strip()
             if chosen:
@@ -335,14 +457,13 @@ def title(req: TitleRequest):
                     stage="confirm"
                 )
 
-        # 인덱스가 이상하면 fallback
         return TitleResponse(
             finalTitle="제목 없음",
             allowCustom=True,
             stage="confirm"
         )
 
-    # 2) 제안 단계 (3개 생성)
+    # 제안 단계
     titles = suggest_titles(req.mode, req.finalText, req.dominantEmotion)
     return TitleResponse(
         titles=titles,
