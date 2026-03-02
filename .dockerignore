@@ -1,0 +1,16 @@
+# Exclude everything by default, then allow only runtime build inputs.
+*
+
+!Dockerfile
+!requirements.txt
+!emotion_model.pt
+!src/
+!src/**
+!data/
+!data/**
+
+# Keep env/secrets and VCS metadata out of Docker build context.
+.env
+.env.*
+.git
+.git/**

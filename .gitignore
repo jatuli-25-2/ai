@@ -48,3 +48,7 @@ bin/
 !src/test/
 !src/main/resources/**
 !src/test/resources/**
+
+# model artifacts
+emotion_model.pt
+*.pt
