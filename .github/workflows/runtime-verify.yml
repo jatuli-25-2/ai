@@ -1,0 +1,60 @@
+name: Runtime Verify
+
+on:
+  push:
+    branches:
+      - verify/runtime-ci
+  workflow_dispatch:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Syntax check
+        run: |
+          python -m py_compile src/emotion_model.py src/emotion_train.py src/emotion_predict.py src/ai_server.py
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Import-level dependency check
+        run: |
+          python - <<'PY'
+          import fastapi
+          import openai
+          import torch
+          import transformers
+          import numpy
+          import pandas
+          import sklearn
+          import tqdm
+          from kobert_transformers import get_kobert_model, get_tokenizer
+          print('dependency-imports-ok')
+          PY
+
+      - name: Verify expected missing artifacts fail clearly
+        run: |
+          PYTHONPATH=src python - <<'PY'
+          from emotion_model import EmotionPredictor
+          try:
+              EmotionPredictor()
+          except FileNotFoundError as exc:
+              message = str(exc)
+              assert 'models/emotion_model.pt' in message or 'models/classes.npy' in message
+              print('artifact-validation-ok:', message)
+          else:
+              raise SystemExit('Expected missing model artifacts to fail explicitly')
+          PY
+
+      - name: Docker build
+        run: docker build -t jatuli-ai:verify .
