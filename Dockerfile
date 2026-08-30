@@ -6,14 +6,13 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-# Install only minimal OS deps used by common Python wheels/runtime.
 RUN apt-get update && \
     apt-get install -y --no-install-recommends ca-certificates && \
     rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
 
-# Force CPU-only torch to avoid massive CUDA image bloat.
+# CPU-only PyTorch keeps the default runtime image compact.
 RUN set -eux; \
     grep -vE '^torch([<>=!~ ]|$)' requirements.txt > /tmp/requirements.no-torch.txt; \
     pip install --upgrade pip; \
@@ -22,8 +21,8 @@ RUN set -eux; \
 
 COPY src ./src
 COPY data ./data
-COPY emotion_model.pt ./emotion_model.pt
+RUN mkdir -p /app/models
 
 EXPOSE 8000
 
-CMD ["uvicorn", "--app-dir", "src", "ai_main_code_server:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "--app-dir", "src", "ai_server_add:app", "--host", "0.0.0.0", "--port", "8000"]
