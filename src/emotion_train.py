@@ -1,11 +1,10 @@
 # emotion_train.py
 # 학과 서버용 KoBERT 감정분석 학습 코드
 
-import os
 import torch
-import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
-from kobert_transformers import get_kobert_model, get_tokenizer
+from kobert_transformers import get_tokenizer
+from emotion_model import EmotionClassifier
 from sklearn.preprocessing import LabelEncoder
 from sklearn.model_selection import train_test_split
 import pandas as pd
@@ -60,23 +59,7 @@ class KoBERTDataset(Dataset):
             "label": torch.tensor(label, dtype=torch.long),
         }
 
-# 모델 정의
-class EmotionClassifier(nn.Module):
-    def __init__(self, num_classes):
-        super().__init__()
-        self.bert = get_kobert_model()
-        self.dropout = nn.Dropout(0.3)
-        self.fc = nn.Linear(768, num_classes)
-
-    def forward(self, input_ids, attention_mask, token_type_ids):
-        outputs = self.bert(
-            input_ids=input_ids,
-            attention_mask=attention_mask,
-            token_type_ids=token_type_ids
-        )
-        pooled_output = outputs[1]
-        out = self.dropout(pooled_output)
-        return self.fc(out)
+# 모델 정의는 emotion_model.py의 공용 EmotionClassifier를 사용
 
 # 학습 준비
 tokenizer = get_tokenizer()
@@ -86,7 +69,7 @@ train_loader = DataLoader(train_dataset, batch_size=16, shuffle=True)
 val_loader = DataLoader(val_dataset, batch_size=16)
 
 model = EmotionClassifier(num_classes=len(label_encoder.classes_)).to(device)
-criterion = nn.CrossEntropyLoss()
+criterion = torch.nn.CrossEntropyLoss()
 optimizer = torch.optim.AdamW(model.parameters(), lr=2e-5)
 
 # 학습 루프
@@ -137,7 +120,7 @@ for epoch in range(epochs):
     # Early Stopping
     if val_loss < best_val_loss:
         best_val_loss = val_loss
-        torch.save(model.state_dict(), "kobert_emotion_best.pt")
+        torch.save(model.state_dict(), "emotion_model.pt")
         np.save("classes.npy", label_encoder.classes_)
         print("Validation loss improved → Model saved!")
         early_stop_count = 0
