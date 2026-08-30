@@ -8,13 +8,6 @@ import torch
 import torch.nn as nn
 from kobert_transformers import get_kobert_model, get_tokenizer
 
-# LabelEncoder로 영문 감정 라벨을 정렬했을 때의 순서.
-# classes.npy가 배포 환경에 없을 경우 기존 서비스와 동일한 순서를 fallback으로 사용합니다.
-DEFAULT_CLASSES = np.array(
-    ["angry", "disgust", "fear", "happiness", "neutral", "sadness", "surprise"],
-    dtype=object,
-)
-
 EMOTION_KO = {
     "angry": "분노",
     "disgust": "혐오",
@@ -67,29 +60,22 @@ class EmotionPredictor:
         self.max_length = max_length
 
         # Environment variables take priority in deployment environments.
-        # Legacy root paths are transparently redirected to models/ when available.
-        resolved_model_path = os.getenv("EMOTION_MODEL_PATH", model_path)
-        resolved_classes_path = os.getenv("EMOTION_CLASSES_PATH", classes_path)
-
-        if resolved_model_path == "emotion_model.pt" and os.path.exists("models/emotion_model.pt"):
-            resolved_model_path = "models/emotion_model.pt"
-        if resolved_classes_path == "classes.npy" and os.path.exists("models/classes.npy"):
-            resolved_classes_path = "models/classes.npy"
-
-        self.model_path = resolved_model_path
-        self.classes_path = resolved_classes_path
-
-        self.classes = (
-            np.load(self.classes_path, allow_pickle=True)
-            if os.path.exists(self.classes_path)
-            else DEFAULT_CLASSES.copy()
-        )
+        self.model_path = os.getenv("EMOTION_MODEL_PATH", model_path)
+        self.classes_path = os.getenv("EMOTION_CLASSES_PATH", classes_path)
 
         if not os.path.exists(self.model_path):
             raise FileNotFoundError(
                 "감정분류 모델 파일을 찾을 수 없습니다: "
                 f"{self.model_path}. models/README.md를 참고해 모델 파일을 배치하세요."
             )
+
+        if not os.path.exists(self.classes_path):
+            raise FileNotFoundError(
+                "감정분류 클래스 매핑 파일을 찾을 수 없습니다: "
+                f"{self.classes_path}. 학습 시 생성된 classes.npy를 모델과 함께 배치하세요."
+            )
+
+        self.classes = np.load(self.classes_path, allow_pickle=True)
 
         self.model = EmotionClassifier(num_classes=len(self.classes))
         state_dict = torch.load(self.model_path, map_location=self.device)
