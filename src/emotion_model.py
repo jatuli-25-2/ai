@@ -58,21 +58,41 @@ class EmotionPredictor:
 
     def __init__(
         self,
-        model_path: str = "emotion_model.pt",
-        classes_path: str = "classes.npy",
+        model_path: str = "models/emotion_model.pt",
+        classes_path: str = "models/classes.npy",
         device: Optional[torch.device] = None,
         max_length: int = 64,
     ):
         self.device = device or torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.max_length = max_length
+
+        # Environment variables take priority in deployment environments.
+        # Legacy root paths are transparently redirected to models/ when available.
+        resolved_model_path = os.getenv("EMOTION_MODEL_PATH", model_path)
+        resolved_classes_path = os.getenv("EMOTION_CLASSES_PATH", classes_path)
+
+        if resolved_model_path == "emotion_model.pt" and os.path.exists("models/emotion_model.pt"):
+            resolved_model_path = "models/emotion_model.pt"
+        if resolved_classes_path == "classes.npy" and os.path.exists("models/classes.npy"):
+            resolved_classes_path = "models/classes.npy"
+
+        self.model_path = resolved_model_path
+        self.classes_path = resolved_classes_path
+
         self.classes = (
-            np.load(classes_path, allow_pickle=True)
-            if os.path.exists(classes_path)
+            np.load(self.classes_path, allow_pickle=True)
+            if os.path.exists(self.classes_path)
             else DEFAULT_CLASSES.copy()
         )
 
+        if not os.path.exists(self.model_path):
+            raise FileNotFoundError(
+                "감정분류 모델 파일을 찾을 수 없습니다: "
+                f"{self.model_path}. models/README.md를 참고해 모델 파일을 배치하세요."
+            )
+
         self.model = EmotionClassifier(num_classes=len(self.classes))
-        state_dict = torch.load(model_path, map_location=self.device)
+        state_dict = torch.load(self.model_path, map_location=self.device)
         self.model.load_state_dict(state_dict)
         self.model.to(self.device)
         self.model.eval()
