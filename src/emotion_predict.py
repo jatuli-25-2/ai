@@ -1,13 +1,14 @@
 # emotion_predict.py
 # KoBERT 감정 분석 예측 코드 (서버/CLI 공용)
+import os
 import sys
 
 from emotion_model import EmotionPredictor
 
 
 predictor = EmotionPredictor(
-    model_path="emotion_model.pt",
-    classes_path="classes.npy",
+    model_path=os.getenv("EMOTION_MODEL_PATH", "models/emotion_model.pt"),
+    classes_path=os.getenv("EMOTION_CLASSES_PATH", "models/classes.npy"),
 )
 
 
@@ -24,7 +25,7 @@ def predict_emotion(text: str):
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
-        print('Usage: python emotion_predict.py "문장 내용"')
+        print('Usage: python src/emotion_predict.py "문장 내용"')
         sys.exit(1)
 
     text = sys.argv[1]
