@@ -9,7 +9,7 @@ import json
 import os
 import re
 from collections import Counter
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 from urllib.parse import quote_plus
 
 from fastapi import FastAPI
@@ -35,10 +35,7 @@ MODEL_DEEP = os.getenv("OPENAI_MODEL_DEEP", "gpt-5.6-terra")
 MUSIC_GENRES = ["발라드", "댄스", "힙합", "R&B", "인디", "록", "OST", "트로트", "기타"]
 BOOK_GENRES = ["소설", "에세이", "자기계발", "인문", "심리", "시", "기타"]
 
-emotion_model = EmotionPredictor(
-    model_path="emotion_model.pt",
-    classes_path="classes.npy",
-)
+emotion_model = EmotionPredictor()
 
 app = FastAPI(
     title="Jatuli AI Server",
@@ -46,17 +43,20 @@ app = FastAPI(
     description="KoBERT emotion recognition + LLM writing assistant",
 )
 
+Mode = Literal["diary", "book"]
+MessageRole = Literal["AI", "USER"]
+
 
 # ============================
 # Pydantic models
 # ============================
 class MessageItem(BaseModel):
-    role: str  # "AI" or "USER"
+    role: MessageRole
     content: str
 
 
 class NextQuestionRequest(BaseModel):
-    mode: str
+    mode: Mode
     messages: List[MessageItem]
 
 
@@ -66,7 +66,7 @@ class NextQuestionResponse(BaseModel):
 
 
 class FinalizeRequest(BaseModel):
-    mode: str
+    mode: Mode
     messages: List[MessageItem]
 
 
@@ -77,7 +77,7 @@ class FinalizeResponse(BaseModel):
 
 
 class TitleRequest(BaseModel):
-    mode: str
+    mode: Mode
     finalText: str
     dominantEmotion: Optional[str] = None
     titles: Optional[List[str]] = None
@@ -146,10 +146,10 @@ def openai_json(model: str, system: str, user: str, max_tokens: int = 250) -> Di
 
 
 def analyze_user_messages(messages: List[MessageItem]) -> List[Dict[str, str]]:
-    """Return user messages paired with KoBERT emotion predictions."""
+    """Return all user messages paired with KoBERT emotion predictions."""
     analyzed: List[Dict[str, str]] = []
     for message in messages:
-        if message.role.upper() != "USER":
+        if message.role != "USER":
             continue
         prediction = emotion_model.predict(message.content)
         analyzed.append(
@@ -159,6 +159,15 @@ def analyze_user_messages(messages: List[MessageItem]) -> List[Dict[str, str]]:
             }
         )
     return analyzed
+
+
+def get_latest_user_emotion(messages: List[MessageItem]) -> str:
+    """Analyze only the most recent user message for next-question generation."""
+    for message in reversed(messages):
+        if message.role == "USER":
+            prediction = emotion_model.predict(message.content)
+            return str(prediction["emotion"])
+    return "중립"
 
 
 def format_emotion_context(analyzed: List[Dict[str, str]]) -> str:
@@ -283,7 +292,7 @@ def recommend_book(emotion: str) -> Dict[str, str]:
 # ============================
 # Title suggestion
 # ============================
-def suggest_titles(mode: str, final_text: str, dominant_emotion: Optional[str] = None) -> List[str]:
+def suggest_titles(mode: Mode, final_text: str, dominant_emotion: Optional[str] = None) -> List[str]:
     clipped = _clip_for_prompt(final_text)
     style_hint = (
         "따뜻하고 감성적인 일기 제목"
@@ -343,7 +352,7 @@ def health():
 
 
 @app.get("/api/ai/start")
-def get_first_question(mode: str):
+def get_first_question(mode: Mode):
     if mode == "diary":
         question = "오늘 하루 중 가장 기억에 남는 순간은 무엇이었나요?"
     else:
@@ -354,8 +363,7 @@ def get_first_question(mode: str):
 @app.post("/api/ai/next-question", response_model=NextQuestionResponse)
 def next_question(req: NextQuestionRequest):
     history = "\n".join(f"{m.role}: {m.content}" for m in req.messages)
-    analyzed = analyze_user_messages(req.messages)
-    latest_emotion = analyzed[-1]["emotion"] if analyzed else "중립"
+    latest_emotion = get_latest_user_emotion(req.messages)
 
     prompt = f"""
 다음은 사용자와 AI의 대화입니다.
