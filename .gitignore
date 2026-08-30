@@ -49,6 +49,9 @@ bin/
 !src/main/resources/**
 !src/test/resources/**
 
-# model artifacts
-emotion_model.pt
+# --- AI 모델 산출물 ---
 *.pt
+*.npy
+models/*.pt
+models/*.npy
+!models/README.md
