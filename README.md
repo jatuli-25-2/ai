@@ -6,15 +6,19 @@
 
 AI 서버는 사용자의 발화를 **KoBERT 기반 7-Class 감정분류 모델**로 분석하고, 대화 이력과 감정 정보를 LLM에 함께 전달하여 맥락에 맞는 후속 질문을 생성합니다. 대화가 종료되면 전체 대화와 감정 흐름을 기반으로 일기·독후감을 생성하고, 대표 감정에 따라 음악 또는 도서를 추천하며, 완성된 글에 어울리는 제목 후보까지 생성합니다.
 
-- **개발 기간:** 2025.08 ~ 2025.12
+- **프로젝트 개발:** 2025.08 ~ 2025.12
+- **서비스 보완:** 2026.02 ~ 2026.03
+- **저장소 리팩토링:** 2026.08
 - **프로젝트 유형:** 졸업 프로젝트
 - **담당:** AI Developer
+
+> 아래의 AI 기능과 서비스 연동은 프로젝트 개발 과정에서 구현했으며, 공용 감정모델 구조·모델 Artifact 경로·Docker Runtime·환경변수 기반 LLM 설정·저장소 구조는 이후 포트폴리오 정리 과정에서 리팩토링했습니다.
 
 ---
 
 ## My Role
 
-프로젝트에서 AI 개발을 담당했습니다.
+### 프로젝트 개발 당시
 
 - AI Hub 감정 대화 데이터를 활용한 **KoBERT 7-Class 감정분류 모델 Fine-tuning**
 - 감정분석 결과를 활용한 **Emotion-aware Multi-turn 질문 생성 로직 설계**
@@ -25,7 +29,14 @@ AI 서버는 사용자의 발화를 **KoBERT 기반 7-Class 감정분류 모델*
 - 완성된 글과 대표 감정을 활용한 **제목 후보 생성 기능 구현**
 - **FastAPI 기반 AI Server 구현 및 Spring Backend 연동**
 - Stateful Prototype에서 **Stateless Architecture**로 서비스 구조 개선
-- 학습·단독 추론·서비스 추론이 동일한 KoBERT 모델 구조를 사용하도록 모델 코드 공통화
+
+### 이후 저장소 리팩토링
+
+- 학습·단독 추론·서비스 추론이 동일한 KoBERT 구조를 사용하도록 모델 코드 공통화
+- 모델 Weight와 Label Mapping의 저장 위치 및 환경변수 설정 표준화
+- API 입력값 검증 강화 및 최근 감정 추론 시 불필요한 반복 추론 제거
+- Docker 실행 Entry Point와 Runtime dependency 정리
+- 개발 중간 버전을 `legacy/`로 분리하여 현재 실행 코드와 개발 이력을 구분
 
 ---
 
@@ -83,6 +94,8 @@ flowchart LR
 
 AI Hub Dataset: https://aihub.or.kr/aihubdata/data/view.do?dataSetSn=263
 
+원본 및 학습용으로 가공한 데이터 파일은 공개 저장소에 포함하지 않습니다. 데이터 준비 방법은 [`data/README.md`](./data/README.md)를 참고하세요.
+
 ### Emotion Classes
 
 사용자의 발화를 다음 7개 감정으로 분류합니다.
@@ -97,7 +110,7 @@ AI Hub Dataset: https://aihub.or.kr/aihubdata/data/view.do?dataSetSn=263
 | 슬픔 |
 | 놀람 |
 
-학습 단계에서는 `LabelEncoder`를 사용하며, 학습 시 생성된 `classes.npy`를 함께 저장하여 서비스 추론 시에도 학습 당시의 Label 순서를 그대로 사용합니다.
+학습 단계에서는 `LabelEncoder`를 사용하며, 학습 시 생성된 `classes.npy`를 함께 저장하여 서비스 추론 시에도 학습 당시의 Label 순서를 그대로 사용합니다. 현재 서비스 실행 시 `classes.npy`는 필수 Artifact입니다.
 
 ### Model Architecture
 
@@ -171,7 +184,7 @@ Prompt에는 다음 원칙을 적용합니다.
 - 사용자가 자신의 경험을 더 이야기할 수 있는 질문 생성
 - 한 번에 하나의 한국어 질문만 생성
 
-이를 통해 감정분류 결과가 단순 표시값으로 끝나는 것이 아니라, **실제 Multi-turn Conversation의 다음 행동을 결정하는 정보로 활용**되도록 구성했습니다.
+다음 질문을 생성할 때는 전체 사용자 발화를 다시 추론하지 않고, **가장 최근 USER 발화만 KoBERT로 분석**합니다. 전체 감정 흐름이 필요한 최종 글 생성 단계에서는 모든 USER 발화를 분석합니다.
 
 ---
 
@@ -307,6 +320,15 @@ flowchart LR
 | POST | `/api/ai/finalize` | 최종 글, 대표 감정, 추천 결과 생성 |
 | POST | `/api/ai/title` | 제목 후보 생성 또는 제목 확정 |
 
+현재 API 입력은 서비스에서 사용하는 값에 맞춰 제한합니다.
+
+```text
+mode: diary | book
+role: AI | USER
+```
+
+잘못된 값은 FastAPI/Pydantic Validation 단계에서 거부됩니다.
+
 ---
 
 ## LLM Configuration
@@ -339,7 +361,7 @@ ai/
 ├── requirements.txt
 ├── README.md
 ├── data/
-│   └── emotion_data.csv
+│   └── README.md
 ├── models/
 │   └── README.md
 ├── src/
@@ -354,19 +376,20 @@ ai/
     └── 03_stateless_server_prototype.py
 ```
 
-- `src/ai_server.py`: 현재 서비스에서 사용하는 Stateless FastAPI AI Server
+- `src/ai_server.py`: 현재 서비스 기준 Stateless FastAPI AI Server
 - `src/emotion_model.py`: 학습·CLI Prediction·AI Server가 공통으로 사용하는 KoBERT Classifier/Predictor
 - `src/emotion_train.py`: AI Hub 감정 대화 데이터를 이용한 KoBERT Fine-tuning 코드
 - `src/emotion_predict.py`: Fine-tuned 모델 단독 테스트용 CLI Prediction 코드
+- [`data/README.md`](./data/README.md): 외부 학습 데이터 준비 방법
 - [`legacy/`](./legacy): 개발 과정에서 사용했던 이전 구현 보존
 
 ---
 
 ## Model Artifacts
 
-Fine-tuned 모델 Weight는 용량 문제로 Git Repository에 포함하지 않습니다.
+Fine-tuned 모델 Weight와 학습 당시 Label Mapping은 Git Repository에 포함하지 않습니다.
 
-실행 전 다음 파일이 필요합니다.
+실행 전 다음 두 파일이 모두 필요합니다.
 
 ```text
 models/
@@ -376,6 +399,8 @@ models/
 
 - `emotion_model.pt`: KoBERT 7-Class Emotion Classifier의 Fine-tuned Weight
 - `classes.npy`: 학습 당시 `LabelEncoder.classes_`를 저장한 Label Mapping
+
+`classes.npy`가 없으면 모델 출력 Index와 실제 Emotion Label의 대응을 보장할 수 없기 때문에 서비스가 실행되지 않도록 구성했습니다.
 
 자세한 내용은 [`models/README.md`](./models/README.md)를 참고하세요.
 
@@ -416,16 +441,26 @@ Dependency 설치:
 pip install -r requirements.txt
 ```
 
-### 3. Model Files
+### 3. Training Data
 
-다음 두 파일을 `models/` 디렉터리에 배치합니다.
+모델을 직접 Fine-tuning하려면 AI Hub의 해당 데이터셋 이용 조건을 확인한 뒤 학습용 CSV를 별도로 준비합니다.
+
+```text
+data/emotion_data.csv
+```
+
+CSV에는 현재 학습 코드가 사용하는 `발화문`, `1번 감정` 컬럼이 필요합니다. 자세한 내용은 [`data/README.md`](./data/README.md)를 참고하세요.
+
+### 4. Model Files
+
+서비스를 실행하려면 다음 두 파일을 `models/` 디렉터리에 배치합니다.
 
 ```text
 models/emotion_model.pt
 models/classes.npy
 ```
 
-직접 학습하려면 프로젝트 루트에서 다음 명령을 실행합니다.
+데이터를 준비한 뒤 직접 학습하려면 프로젝트 루트에서 다음 명령을 실행합니다.
 
 ```bash
 python src/emotion_train.py
@@ -433,7 +468,7 @@ python src/emotion_train.py
 
 Validation Loss가 개선될 때 Best Model과 Class Mapping이 `models/`에 자동 저장됩니다.
 
-### 4. Environment Variables
+### 5. Environment Variables
 
 ```env
 OPENAI_API_KEY=your_api_key
@@ -480,17 +515,17 @@ docker run \
   jatuli-ai
 ```
 
-모델 Weight는 Docker Image 내부에 포함하지 않습니다. Docker Runtime에서는 기본적으로 CPU 기반 PyTorch 환경을 사용하여 학습 환경과 Serving 환경을 분리했습니다.
+모델 Weight와 Label Mapping은 Docker Image 내부에 포함하지 않습니다. Docker Runtime에서는 기본적으로 CPU 기반 PyTorch 환경을 사용하여 학습 환경과 Serving 환경을 분리했습니다.
 
 ---
 
 ## Development History
 
-자투리 AI 기능은 Prototype을 서비스에 연동하는 과정에서 단계적으로 구조를 개선했습니다.
+자투리 AI 기능은 한 번에 현재 구조로 만들어진 것이 아니라, Prototype을 서비스에 연동하는 과정에서 단계적으로 발전했습니다. 이후 저장소 리팩토링에서는 당시 기능을 유지하면서 실행 구조와 문서의 정합성을 정리했습니다.
 
 ```mermaid
 flowchart LR
-    A[CLI Prototype] --> B[Stateful FastAPI] --> C[Stateless Prototype] --> D[Final AI Server]
+    A[CLI Prototype] --> B[Stateful FastAPI] --> C[Stateless Prototype] --> D[Service Integration] --> E[Repository Refactoring]
 ```
 
 ### 1. CLI Prototype
@@ -509,18 +544,24 @@ CLI 기능을 API 형태로 확장하고 FastAPI Server 내부에서 사용자�
 
 Spring Backend와 연동하면서 Conversation State의 책임을 Backend로 이동했습니다. Spring이 전체 대화 이력을 AI Server에 전달하고, AI Server는 전달받은 데이터만을 기반으로 처리하도록 구조를 변경했습니다.
 
-### 4. Final AI Server
+### 4. Service Integration & Improvement
 
-- 공용 KoBERT Emotion Model
-- Emotion-aware Multi-turn Question
-- Stateless FastAPI Architecture
 - Diary / Book Review Generation
 - Emotion-based Recommendation
 - Structured LLM Output
 - Server-side Search URL Generation
 - Title Generation
-- 환경변수 기반 모델 설정
-- Docker Runtime
+- Docker 기반 배포 구성
+
+### 5. Repository Refactoring
+
+- 공용 KoBERT Emotion Model
+- 모델 Artifact 경로 표준화
+- API 입력 Validation
+- 최근 발화 중심 감정 추론 최적화
+- 환경변수 기반 LLM 설정
+- 현재 실행 코드와 Legacy 코드 분리
+- 데이터 및 모델 Artifact의 공개 저장소 관리 정리
 
 과거 구현은 [`legacy/`](./legacy)에서 확인할 수 있습니다.
 
