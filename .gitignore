@@ -1,57 +1,42 @@
-# --- 기본 빌드/캐시 폴더 ---
-build/
-out/
-bin/
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+env/
 
-# --- Gradle Wrapper는 반드시 포함 ---
-!gradlew
-!gradlew.bat
-!gradle/wrapper/
-!gradle/wrapper/gradle-wrapper.jar
-!gradle/wrapper/gradle-wrapper.properties
-
-# --- IDE 설정 파일 무시 (IntelliJ, STS, VSCode 등) ---
-.idea/
-*.iml
-*.ipr
-*.iws
-.vscode/
-*.class
-
-# --- STS 관련 ---
-.apt_generated/
-.factorypath
-.project
-.classpath
-.settings/
-.springBeans/
-.sts4-cache/
-
-# --- 로그 파일 ---
-*.log
-
-# --- 실행 환경 파일 (DB, API키 등) ---
+# Environment / secrets
 .env
-#application-*.yml
-#application-*.properties
-#.env 파일에서 전부 관리해서 이그노어x
+.env.*
+!.env.example
 
-# --- 테스트 관련 빌드 폴더 제외 ---
-!**/src/main/**/out/
-!**/src/test/**/out/
-!**/src/main/**/bin/
-!**/src/test/**/bin/
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
 
-# --- resources 폴더는 Git에 포함시키기 ---
-!src/
-!src/main/
-!src/test/
-!src/main/resources/**
-!src/test/resources/**
+# Test / lint / type-check caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
 
-# --- AI 모델 산출물 ---
+# Logs / local outputs
+*.log
+logs/
+outputs/
+
+# Model artifacts
 *.pt
 *.npy
 models/*.pt
 models/*.npy
 !models/README.md
+
+# Local dataset artifact
+# AI Hub 원본/가공 데이터는 공개 저장소에 포함하지 않습니다.
+data/emotion_data.csv
+!data/README.md
