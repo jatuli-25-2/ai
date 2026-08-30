@@ -1,11 +1,36 @@
 """Shared KoBERT emotion classification model used by training and serving."""
 
+import os
 from typing import Any, Dict, Optional
 
 import numpy as np
 import torch
 import torch.nn as nn
 from kobert_transformers import get_kobert_model, get_tokenizer
+
+# LabelEncoder로 영문 감정 라벨을 정렬했을 때의 순서.
+# classes.npy가 배포 환경에 없을 경우 기존 서비스와 동일한 순서를 fallback으로 사용합니다.
+DEFAULT_CLASSES = np.array(
+    ["angry", "disgust", "fear", "happiness", "neutral", "sadness", "surprise"],
+    dtype=object,
+)
+
+EMOTION_KO = {
+    "angry": "분노",
+    "disgust": "혐오",
+    "fear": "두려움",
+    "happiness": "기쁨",
+    "neutral": "중립",
+    "sadness": "슬픔",
+    "surprise": "놀람",
+    "분노": "분노",
+    "혐오": "혐오",
+    "두려움": "두려움",
+    "기쁨": "기쁨",
+    "중립": "중립",
+    "슬픔": "슬픔",
+    "놀람": "놀람",
+}
 
 
 class EmotionClassifier(nn.Module):
@@ -40,7 +65,11 @@ class EmotionPredictor:
     ):
         self.device = device or torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.max_length = max_length
-        self.classes = np.load(classes_path, allow_pickle=True)
+        self.classes = (
+            np.load(classes_path, allow_pickle=True)
+            if os.path.exists(classes_path)
+            else DEFAULT_CLASSES.copy()
+        )
 
         self.model = EmotionClassifier(num_classes=len(self.classes))
         state_dict = torch.load(model_path, map_location=self.device)
@@ -63,8 +92,10 @@ class EmotionPredictor:
         logits = self.model(**inputs)
         probs = torch.softmax(logits, dim=-1).cpu().numpy()[0]
         idx = int(np.argmax(probs))
+        raw_emotion = str(self.classes[idx])
 
         return {
-            "emotion": str(self.classes[idx]),
+            "emotion": EMOTION_KO.get(raw_emotion, raw_emotion),
+            "raw_emotion": raw_emotion,
             "probs": probs.tolist(),
         }
