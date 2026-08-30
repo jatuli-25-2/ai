@@ -25,4 +25,4 @@ RUN mkdir -p /app/models
 
 EXPOSE 8000
 
-CMD ["uvicorn", "--app-dir", "src", "ai_server_add:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "--app-dir", "src", "ai_server:app", "--host", "0.0.0.0", "--port", "8000"]
