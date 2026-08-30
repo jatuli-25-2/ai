@@ -3,11 +3,18 @@
 
 !Dockerfile
 !requirements.txt
-!emotion_model.pt
 !src/
 !src/**
 !data/
 !data/**
+!models/
+!models/README.md
+
+# Model artifacts are mounted at runtime instead of baked into the image.
+models/*.pt
+models/*.npy
+*.pt
+*.npy
 
 # Keep env/secrets and VCS metadata out of Docker build context.
 .env
