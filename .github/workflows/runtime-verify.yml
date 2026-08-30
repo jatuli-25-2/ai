@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - verify/runtime-ci
+  pull_request:
+    branches:
+      - main
   workflow_dispatch:
 
 jobs:
