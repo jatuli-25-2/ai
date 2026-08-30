@@ -13,10 +13,7 @@ from fastapi import FastAPI
 from pydantic import BaseModel
 from openai import OpenAI
 
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
-from transformers import AutoTokenizer, BertModel
+from emotion_model import EmotionPredictor
 
 # ============================
 # 환경 설정
@@ -29,44 +26,18 @@ client = OpenAI(api_key=OPENAI_API_KEY)
 MODEL_FAST = "gpt-5.2-chat-latest"
 MODEL_DEEP = "gpt-5.2"
 
-DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-EMOTIONS_KO = ["분노", "혐오", "두려움", "기쁨", "중립", "슬픔", "놀람"]
-
 # 추천 장르
 MUSIC_GENRES = ["발라드", "댄스", "힙합", "R&B", "인디", "록", "OST", "트로트", "기타"]
 BOOK_GENRES = ["소설", "에세이", "자기계발", "인문", "심리", "시", "기타"]
 
 # ============================
 # 감정분석 모델 (KoBERT)
+# 학습 코드와 동일한 공용 모델 구조 및 classes.npy 라벨 매핑 사용
 # ============================
-class EmotionClassifier7(nn.Module):
-    def __init__(self, model_path: str = "emotion_model.pt"):
-        super().__init__()
-        self.bert = BertModel.from_pretrained("monologg/kobert", trust_remote_code=True)
-        self.fc = nn.Linear(self.bert.config.hidden_size, 7)
-        state_dict = torch.load(model_path, map_location=DEVICE)
-        self.load_state_dict(state_dict, strict=False)
-        self.to(DEVICE)
-        self.eval()
-        self.tokenizer = AutoTokenizer.from_pretrained("monologg/kobert", trust_remote_code=True)
-
-    @torch.no_grad()
-    def predict(self, text: str) -> Dict[str, object]:
-        inputs = self.tokenizer(
-            text,
-            return_tensors="pt",
-            truncation=True,
-            padding=True,
-            max_length=64
-        ).to(DEVICE)
-        outputs = self.bert(**inputs)
-        cls = outputs.last_hidden_state[:, 0]
-        logits = self.fc(cls)
-        probs = F.softmax(logits, dim=-1).cpu().numpy()[0]
-        idx = int(probs.argmax())
-        return {"emotion": EMOTIONS_KO[idx], "probs": probs.tolist()}
-
-emotion_model = EmotionClassifier7(model_path="emotion_model.pt")
+emotion_model = EmotionPredictor(
+    model_path="emotion_model.pt",
+    classes_path="classes.npy",
+)
 
 # ============================
 # Pydantic Models
